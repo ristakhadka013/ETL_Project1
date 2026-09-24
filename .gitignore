@@ -1,3 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Environment / secrets
+.env
+
+# Raw healthcare datasets
 claims/
 *.csv
 *.xlsx
+
+# Python generated files
+*.log
