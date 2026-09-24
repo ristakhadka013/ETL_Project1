@@ -1,0 +1,13 @@
+provider_id,provider_name,specialty,npi,state
+PRV2001,Dr. Linda Smith,Endocrinology,1262950628,FL
+PRV2002,Dr. Michael Williams,Cardiology,1634036506,IL
+PRV2003,Dr. Maria Smith,Cardiology,1234760738,FL
+PRV2004,Dr. Anthony White,Internal Medicine,1602632297,FL
+PRV2005,Dr. Lisa Moore,Family Practice,1482334538,OH
+PRV2006,Dr. James Jones,Radiology,1365341213,OH
+PRV2007,Dr. Michael Martinez,Behavioral Health,1109747451,CA
+PRV2008,Dr. Thomas Williams,Behavioral Health,1909990148,PA
+PRV2009,Dr. Betty Rodriguez,Internal Medicine,1783543540,GA
+PRV2010,Dr. Lisa Williams,Radiology,1084611066,OH
+PRV2011,Dr. Betty Taylor,Family Practice,1756528252,CA
+PRV2012,Dr. Maria Davis,Endocrinology,1085675980,FL
