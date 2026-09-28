@@ -1,14 +1,16 @@
 from pathlib import Path
-
 import pandas as pd
 
+pd.set_option("display.max_columns", None)
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
+# Reading multiple data at once
+folder = Path('claims/')
+files = folder.glob('*.csv')
 
-claims_folder = Path("claims/")
-output_folder = Path("output/")
+# checking whether claims folder it there or not
+"""print(folder.exists())
+print(folder.is_dir())
+print(list(folder.iterdir())) """
 
 standard_columns = [
     "claim_id",
@@ -27,651 +29,256 @@ standard_columns = [
 ]
 
 february_mapping = {
-    "ClaimID": "claim_id",
-    "MemberID": "member_id",
-    "ProviderID": "provider_id",
-    "ServiceDate": "service_date",
-    "DiagnosisCode": "diagnosis_code",
-    "ProcedureCode": "procedure_code",
-    "BilledAmount": "billed_amount",
-    "PaidAmount": "paid_amount",
-    "ClaimStatus": "claim_status"
+    'ClaimID': 'claim_id',
+    'MemberID': 'member_id',
+    'ProviderID': 'provider_id',
+    'ServiceDate': 'service_date',
+    'DiagnosisCode': 'diagnosis_code',
+    'ProcedureCode': 'procedure_code',
+    'BilledAmount': 'billed_amount',
+    'PaidAmount': 'paid_amount',
+    'ClaimStatus': 'claim_status',
+    'source_file': 'source_file'
 }
 
 march_mapping = {
-    "rendering_provider": "provider_id",
-    "diag_code": "diagnosis_code",
-    "proc_code": "procedure_code",
-    "billed_amt": "billed_amount",
-    "paid_amt": "paid_amount",
-    "status": "claim_status"
+    'rendering_provider': 'provider_id',
+    'diag_code': 'diagnosis_code',
+    'proc_code': 'procedure_code',
+    'billed_amt': 'billed_amount',
+    'paid_amt': 'paid_amount',
+    'status': 'claim_status'
 }
 
 date_format = {
-    "claims_january_2026.csv": "%Y-%m-%d",
-    "claims_february_2026.csv": "%m/%d/%Y",
-    "claims_march_2026.csv": "%Y-%m-%d"
+    'claims_january_2026.csv': '%Y-%m-%d',
+    'claims_february_2026.csv': '%m/%d/%Y',
+    'claims_march_2026.csv': '%Y-%m-%d'
 }
 
-diagnosis_pattern = r"^[A-Z0-9]{3}(\.[0-9]{1,3})?$"
+claims = []
 
-procedure_pattern = r"^\d{5}$"
+# reading each csv file in data frame
+for file in files:
+    df = pd.read_csv(file)
+    df['source_file'] = file.name
+    df['load_timestamp'] = pd.Timestamp.now()
 
+    # checking whether the column name is consistent in all files
+    """print(f'\n {file.name}')
+    print(df.columns.to_list())"""
 
-# ============================================================
-# 1. EXTRACT
-# ============================================================
+    # column standardization
+    if 'jan' in file.name.lower():
+        pass
+    elif 'feb' in file.name.lower():
+        df = df.rename(columns=february_mapping)
+    elif 'mar' in file.name.lower():
+        df = df.rename(columns=march_mapping)
 
-def extract_claims(claims_folder):
+    # date standardization
+    expeceted_date_format = date_format[file.name]
 
-    files = claims_folder.glob("*.csv")
+    df['service_date'] = pd.to_datetime(
+        df['service_date'],
+        format=expeceted_date_format,
+        errors="coerce"
+    )
 
-    claims = []
+    # checking which date is invalid and got NAT
+    """print(
+        df.loc[
+            (df['service_date'].notna()) & (df['parsed_date'].isna()),
+            'service_date'
+        ].head()
+    )"""
 
-    for file in files:
+    # creating new column for each table, which doesnot have standard columns
+    for column in standard_columns:
+        if column not in df.columns:
+            df[column] = pd.NA
 
-        df = pd.read_csv(file)
+    # append each df in empty list
+    claims.append(df)
 
-        # Data lineage
-        df["source_file"] = file.name
+# concating all the tables from claims in one table
+combined_claims = pd.concat(claims, ignore_index=True)
+"""print(combined_claims.head())"""
+# ======== Data Quality check ===============================================================
 
-        # Load timestamp
-        df["load_timestamp"] = pd.Timestamp.now()
+# null check
 
-        claims.append(df)
+missing_value = combined_claims.isna().sum()
+for column, count in missing_value.items():
+    if count > 0:
+        """ print(f'{column} : {count}')"""
 
-    return claims
+# output :
+# member_id : 3 missing values
+# service_date : 2 missing values
+# claim_type : 40 missing values
+# denial_reason : 124 missing values
 
-# ============================================================
-# 2. DATA PROFILING
-# ============================================================
+missing_member_id = combined_claims[combined_claims['member_id'].isna()]
+combined_claims['missing_member_id'] = combined_claims['member_id'].isna()
+"""print(combined_claims['missing_member_id'].value_counts())"""
 
+missing_service_date = combined_claims[combined_claims['service_date'].isna()]
+combined_claims['missing_service_date'] = combined_claims['service_date'].isna()
+"""print(combined_claims['missing_service_date'].value_counts())"""
 
-def profile_dataframe(df, file_name):
+missing_claim_type = combined_claims[combined_claims['claim_type'].isna()]
+combined_claims['missing_claim_type'] = combined_claims['claim_type'].isna()
+"""print(combined_claims['missing_claim_type'].value_counts())"""
 
-    print("\n" + "=" * 90)
-    print(f"DATA PROFILE: {file_name}")
-    print("=" * 90)
-
-    # Shape
-    print("\nShape:")
-    print(df.shape)
-
-    # Basic information
-    print("\nInformation:")
-    print(df.info())
-
-    # Missing values
-    print("\nMissing Values:")
-    print(df.isna().sum())
-
-    # First few records
-    print("\nHead:")
-    print(df.head())
-
-    # Duplicate rows
-    print("\nDuplicate Rows:")
-    print(df.duplicated().sum())
-
-    # Numeric summary
-    print("\nDescribe:")
-    print(df.describe())
-
-    # Unique values
-    print("\nUnique Values:")
-    print(df.nunique(dropna=False))
-
-    # Categorical values
-    print("\nCategorical Values:")
-
-    categorical_columns = [
-        "claim_status",
-        "claim_type"
+missing_denial_reason = combined_claims[combined_claims['denial_reason'].isna(
+)]
+"""print(combined_claims.loc[
+    (combined_claims["claim_status"] == "Denied") &
+    (combined_claims["denial_reason"].isna()),
+    [
+        'claim_status',
+        'denial_reason'
     ]
+].shape)"""
+combined_claims['missing_denial_reason'] = (
+    (combined_claims["claim_status"] == "Denied") &
+    (combined_claims["denial_reason"].isna())
+)
+print(combined_claims['missing_denial_reason'].value_counts())
+
+check_1 = (
+    (combined_claims["claim_status"] == "Denied") &
+    (combined_claims["denial_reason"].isna())
+)
 
-    for column in categorical_columns:
-
-        if column in df.columns:
-
-            print(f"\n{column}:")
-            print(
-                df[column]
-                .value_counts(dropna=False)
-            )
-
-
-def profile_claims(claims):
-
-    for df in claims:
-
-        file_name = df["source_file"].iloc[0]
-
-        profile_dataframe(
-            df,
-            file_name
-        )
-
-    return claims
-
-
-# ============================================================
-# 3. TRANSFORMATION
-# ============================================================
-
-def transform_claims(claims):
-
-    transformed_claims = []
-
-    for df in claims:
-
-        file_name = df["source_file"].iloc[0]
-
-        # ----------------------------------------------------
-        # Standardize column names
-        # ----------------------------------------------------
-
-        if "february" in file_name.lower():
-
-            df = df.rename(
-                columns=february_mapping
-            )
-
-        elif "march" in file_name.lower():
-
-            df = df.rename(
-                columns=march_mapping
-            )
-
-        # ----------------------------------------------------
-        # Standardize date
-        # ----------------------------------------------------
-
-        df["service_date"] = pd.to_datetime(
-            df["service_date"],
-            format=date_format[file_name],
-            errors="coerce"
-        )
-
-        # ----------------------------------------------------
-        # Align schema
-        # ----------------------------------------------------
-
-        for column in standard_columns:
-
-            if column not in df.columns:
-
-                df[column] = pd.NA
-
-        # ----------------------------------------------------
-        # Standardize procedure code
-        # ----------------------------------------------------
-
-        df["procedure_code"] = (
-            df["procedure_code"]
-            .astype("string")
-        )
-
-        # ----------------------------------------------------
-        # Standardize claim status
-        # ----------------------------------------------------
-
-        df["claim_status"] = (
-            df["claim_status"]
-            .str.strip()
-            .str.title()
-        )
-
-        # ----------------------------------------------------
-        # Keep standard column order
-        # ----------------------------------------------------
-
-        df = df[standard_columns]
-
-        transformed_claims.append(df)
-
-    # --------------------------------------------------------
-    # Combine all files
-    # --------------------------------------------------------
-
-    combined_claims = pd.concat(
-        transformed_claims,
-        ignore_index=True
-    )
-
-    # --------------------------------------------------------
-    # Remove exact duplicate records
-    # --------------------------------------------------------
-
-    combined_claims = (
-        combined_claims
-        .drop_duplicates()
-        .reset_index(drop=True)
-    )
-
-    return combined_claims
-
-
-# ============================================================
-# 4. REFERENCE DATA
-# ============================================================
-
-def load_reference_data():
-
-    # --------------------------------------------------------
-    # Provider master
-    # --------------------------------------------------------
-
-    providers = pd.read_csv(
-        "providers.csv"
-    )
-
-    valid_provider_ids = set(
-        providers["provider_id"]
-        .dropna()
-    )
-
-    # --------------------------------------------------------
-    # Member master
-    # --------------------------------------------------------
-
-    excel_member = pd.ExcelFile(
-        "members.xlsx"
-    )
-
-    members = []
-
-    for sheet in excel_member.sheet_names:
-
-        df = pd.read_excel(
-            "members.xlsx",
-            sheet_name=sheet
-        )
-
-        df["member_type"] = sheet
-
-        members.append(df)
-
-    combined_members = pd.concat(
-        members,
-        ignore_index=True
-    )
-
-    valid_member_ids = set(
-        combined_members["member_id"]
-        .dropna()
-    )
-
-    return valid_member_ids, valid_provider_ids
-
-
-# ============================================================
-# 5. VALIDATION
-# ============================================================
-
-def validate_claims(
-    claims,
-    valid_member_ids,
-    valid_provider_ids
-):
-
-    validation_results = {}
-
-    # --------------------------------------------------------
-    # Missing required fields
-    # --------------------------------------------------------
-
-    validation_results["missing_member_id"] = (
-        claims["member_id"].isna()
-    )
-
-    validation_results["missing_service_date"] = (
-        claims["service_date"].isna()
-    )
-
-    validation_results["missing_claim_type"] = (
-        claims["claim_type"].isna()
-    )
-
-    validation_results["missing_denial_reason"] = (
-        claims["denial_reason"].isna()
-    )
-
-    # --------------------------------------------------------
-    # Duplicate claim ID
-    # --------------------------------------------------------
-
-    validation_results["duplicate_claim_id"] = (
-        claims["claim_id"]
-        .duplicated(keep=False)
-    )
-
-    # --------------------------------------------------------
-    # Diagnosis and procedure code
-    # --------------------------------------------------------
-
-    validation_results["invalid_diagnosis"] = (
-        ~claims["diagnosis_code"].str.match(
-            diagnosis_pattern, na=False
-        )
-    )
-
-    validation_results['invalid_procedure'] = (
-        ~claims['procedure_code'].str.match(
-            procedure_pattern, na=False
-        )
-    )
-
-    # --------------------------------------------------------
-    # numeric checks
-    # --------------------------------------------------------
-
-    validation_results["paid_greater_than_billed"] = (
-        claims["paid_amount"]
-        > claims["billed_amount"]
-    )
-
-    validation_results["negative_billed_amount"] = (
-        claims["billed_amount"] < 0
-    )
-
-    validation_results["negative_paid_amount"] = (
-        claims["paid_amount"] < 0
-    )
-
-    # --------------------------------------------------------
-    # Denial business rule
-    # --------------------------------------------------------
-
-    validation_results["denied_missing_reason"] = (
-        (claims["claim_status"] == "Denied")
-        & (claims["denial_reason"].isna())
-    )
-
-    validation_results["denied_paid_amount"] = (
-        (claims['claim_status'] == "Denied")
-        & (claims['paid_amount'] > 0)
-    )
-
-    # --------------------------------------------------------
-    # Referential integrity
-    # --------------------------------------------------------
-
-    validation_results["invalid_provider"] = (
-        ~claims["provider_id"].isin(
-            valid_provider_ids
-        )
-        & claims["provider_id"].notna()
-    )
-
-    validation_results["invalid_member"] = (
-        ~claims["member_id"].isin(
-            valid_member_ids
-        )
-        & claims["member_id"].notna()
-    )
-
-    return validation_results
-
-
-# ============================================================
-# 6. SHOW VALIDATION RESULTS
-# ============================================================
-
-def show_validation_results(validation_results):
-
-    print("\n" + "=" * 90)
-    print("VALIDATION RESULTS")
-    print("=" * 90)
-
-    for name, result in validation_results.items():
-
-        print(
-            f"{name}: "
-            f"{result.sum()} failed"
-        )
-
-
-# ============================================================
-# 7. FLAG
-# ============================================================
-
-def flag_claims(
-    claims,
-    validation_results
-):
-
-    flagged_claims = claims.copy()
-
-    # --------------------------------------------------------
-    # Create overall QA status
-    # --------------------------------------------------------
-
-    flagged_claims["qa_status"] = "PASS"
-
-    # --------------------------------------------------------
-    # Create QA reason
-    # --------------------------------------------------------
-
-    flagged_claims["qa_reason"] = ""
-
-    for name, result in validation_results.items():
-
-        flagged_claims.loc[
-            result,
-            "qa_status"
-        ] = "FAIL"
-
-        flagged_claims.loc[
-            result,
-            "qa_reason"
-        ] = (
-            flagged_claims.loc[
-                result,
-                "qa_reason"
-            ]
-            + name
-            + "; "
-        )
-
-    return flagged_claims
-
-
-# ============================================================
-# 8. LOAD
-# ============================================================
-
-def load_claims(flagged_claims, output_folder):
-
-    output_folder.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    # --------------------------------------------------------
-    # Full processed dataset
-    # --------------------------------------------------------
-
-    processed_file = (
-        output_folder
-        / "processed_claims.csv"
-    )
-
-    flagged_claims.to_csv(
-        processed_file,
-        index=False
-    )
-
-    # --------------------------------------------------------
-    # QA failed records
-    # --------------------------------------------------------
-
-    qa_failed_claims = flagged_claims[
-        flagged_claims["qa_status"] == "FAIL"
-    ]
-
-    qa_file = (
-        output_folder
-        / "qa_failed_claims.csv"
-    )
-
-    qa_failed_claims.to_csv(
-        qa_file,
-        index=False
-    )
-
-    print("\n" + "=" * 60)
-    print("LOAD COMPLETE")
-    print("=" * 60)
-
-    print(
-        f"Processed claims: "
-        f"{processed_file}"
-    )
-
-    print(
-        f"QA failed claims: "
-        f"{qa_file}"
-    )
-
-    print(
-        f"Total records loaded: "
-        f"{len(flagged_claims)}"
-    )
-
-    print(
-        f"QA failed records: "
-        f"{len(qa_failed_claims)}"
-    )
-
-
-# ====MAIN PIPELINE========================================================
-
-
-def main():
-
-    print("\nStarting Healthcare Claims ETL")
-
-    # ========================================================
-    # 1. EXTRACT
-    # ========================================================
-
-    print("\n[1] EXTRACT")
-
-    claims = extract_claims(
-        claims_folder
-    )
-
-    print(
-        f"Files extracted: {len(claims)}"
-    )
-
-    # ========================================================
-    # 2. PROFILE SOURCE DATA
-    # ========================================================
-
-    print("\n[2] PROFILE SOURCE DATA")
-
-    profile_claims(claims)
-
-    # ========================================================
-    # 3. TRANSFORM
-    # ========================================================
-
-    print("\n[3] TRANSFORM")
-
-    combined_claims = transform_claims(
-        claims
-    )
-
-    print(
-        f"Rows after transformation: "
-        f"{len(combined_claims)}"
-    )
-
-    # ========================================================
-    # 4. PROFILE TRANSFORMED DATA
-    # ========================================================
-
-    print("\n[4] PROFILE TRANSFORMED DATA")
-
-    profile_dataframe(
-        combined_claims,
-        "combined_claims"
-    )
-
-    # ========================================================
-    # 5. LOAD REFERENCE DATA
-    # ========================================================
-
-    print("\n[5] LOAD REFERENCE DATA")
-
-    valid_member_ids, valid_provider_ids = (
-        load_reference_data()
-    )
-
-    print(
-        f"Valid member IDs: "
-        f"{len(valid_member_ids)}"
-    )
-
-    print(
-        f"Valid provider IDs: "
-        f"{len(valid_provider_ids)}"
-    )
-
-    # ========================================================
-    # 6. VALIDATE
-    # ========================================================
-
-    print("\n[6] VALIDATE")
-
-    validation_results = validate_claims(
-        combined_claims,
-        valid_member_ids,
-        valid_provider_ids
-    )
-
-    # ========================================================
-    # REVIEW VALIDATION RESULTS
-    # ========================================================
-
-    show_validation_results(
-        validation_results
-    )
-
-    # ========================================================
-    # 7. FLAG
-    # ========================================================
-
-    print("\n[7] FLAG")
-
-    flagged_claims = flag_claims(
-        combined_claims,
-        validation_results
-    )
-
-    print(
-        "QA status distribution:"
-    )
-
-    print(
-        flagged_claims["qa_status"]
-        .value_counts()
-    )
-
-    # ========================================================
-    # 8. LOAD
-    # ========================================================
-
-    print("\n[8] LOAD")
-
-    load_claims(
-        flagged_claims,
-        output_folder
-    )
-
-
-# ====RUN========================================================
-
-if __name__ == "__main__":
-    main()
+check_2 = (
+    (combined_claims["claim_status"] == "Denied") &
+    (combined_claims["denial_reason"].isna())
+)
+
+print("CHECK 1:")
+print(check_1.value_counts())
+
+print("\nCHECK 2:")
+print(check_2.value_counts())
+
+print("\nAre they identical?")
+print(check_1.equals(check_2))
+
+# ========= Duplicate check ==================================================
+
+duplicate_rows = combined_claims.duplicated().sum()
+"""print(duplicate_rows)"""
+
+"""print(combined_claims[combined_claims.duplicated(keep=False)])"""
+combined_claims = combined_claims.drop_duplicates()
+"""print(combined_claims.duplicated().sum())"""
+
+# primary key check
+primary_key_duplicates = combined_claims['claim_id'].duplicated().sum()
+"""print(combined_claims[combined_claims['claim_id'].duplicated(keep=False)])"""
+
+combined_claims["conflicting_claim_id_flag"] = (
+    combined_claims["claim_id"].duplicated(keep=False)
+)
+"""print(combined_claims["conflicting_claim_id_flag"].value_counts())"""
+# ========== Data type and consistent check =======================================================
+
+"""print(combined_claims.info())"""
+# procedure_code         127 non-null    int64   => must be in string
+
+"""print(
+    combined_claims['procedure_code']
+    .astype(str)
+    .str.len().value_counts()
+) """
+# all are of same format
+combined_claims['procedure_code'] = combined_claims['procedure_code'].astype(
+    str)
+"""print(combined_claims.info())"""
+
+
+# checking the diagnosis_code format also
+"""print(
+    combined_claims['diagnosis_code'].head(10)
+)"""
+
+diagnosis_pattern = r'^[A-Z0-9]{3}(\.[0-9]{1,3})?$'
+invalid_daignosis = combined_claims[
+    ~combined_claims['diagnosis_code'].str.match(diagnosis_pattern, na=False)
+]
+
+"""print(f'invalid_diagnosis : {len(invalid_daignosis)}')"""
+
+# category column data consistency check
+
+categories_column = [
+    'claim_type',
+    'claim_status'
+]
+
+for col in categories_column:
+    """print(f'----{col}----')
+    print(combined_claims[col].value_counts())"""
+
+# standardization is needed for claim_status
+combined_claims['claim_status'] = combined_claims['claim_status'].str.strip(
+).str.title()
+"""print(combined_claims['claim_status'].str.strip().str.lower().value_counts())"""
+
+# ======== Numeric column check ============================================================================
+
+"""print(combined_claims[
+    combined_claims['paid_amount'] > combined_claims['billed_amount']
+][['claim_id', 'paid_amount', 'billed_amount']])"""
+
+combined_claims['paid_greater_than_billed'] = combined_claims['paid_amount'] > combined_claims['billed_amount']
+"""print(combined_claims['paid_greater_than_billed'].value_counts())"""
+combined_claims['negative_billed_amt'] = combined_claims['billed_amount'] < 0
+"""print(combined_claims['negative_billed_amt'].value_counts())"""
+
+negative_paid_amount = combined_claims[combined_claims['paid_amount'] < 0]
+"""print(f'negative_paid_amount: {len(negative_paid_amount)}')"""
+
+Denied_paid_amt = combined_claims[
+    (combined_claims['claim_status'] == 'Denied')
+    & (combined_claims['paid_amount'] > 0)
+]
+"""print(f'denied paid claim : {len(Denied_paid_amt)}')"""
+
+# ======== Referential integrity check =========================================
+
+provider = pd.read_csv('providers.csv')
+
+valid_provider_ids = set(provider['provider_id'])
+invalid_provider_ids = combined_claims[
+    ~combined_claims['provider_id'].isin(valid_provider_ids)
+]
+print(f'invalid providers : {len(invalid_provider_ids)}')
+
+excel_member = pd.ExcelFile('members.xlsx')
+members = []
+for sheet in excel_member.sheet_names:
+    df = pd.read_excel('members.xlsx', sheet_name=sheet)
+    df['member_type'] = sheet
+
+    """print(f'-----{sheet}----')
+    print(df.columns.to_list())"""
+    members.append(df)
+
+combined_members = pd.concat(members, ignore_index=True)
+"""print(combined_members.head())"""
+valid_member_ids = set(combined_members['member_id'])
+invalid_member_ids = combined_claims[
+    (~combined_claims['member_id'].isin(valid_member_ids)) &
+    (combined_claims['member_id'].notna())
+]
+print(f'invalid member : {len(invalid_member_ids)}')
+
+output = Path("output")
+output.mkdir(exist_ok=True)
+claims_file = "output/cleaned_claims.csv"
+combined_claims.to_csv(claims_file, index=False)
+
+print(f'Finally saved to : {claims_file}')
