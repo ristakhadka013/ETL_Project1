@@ -256,3 +256,10 @@ invalid_member_ids = combined_claims[
     (combined_claims['member_id'].notna())
 ]
 """print(f'invalid member : {len(invalid_member_ids)}')"""
+
+output = Path("output")
+output.mkdir(exist_ok=True)
+claims_file = "output/cleaned_claims.csv"
+combined_claims.to_csv(claims_file, index=False)
+
+print(f'Finally saved to : {claims_file}')
